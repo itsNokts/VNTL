@@ -9,7 +9,6 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 import qasync
-from pynput import keyboard
 
 from config import load_config, save_config
 from context_manager import ContextManager
@@ -217,54 +216,7 @@ async def main() -> None:
     )
     overlay.show()
 
-    # Global hotkeys (handled in a background thread by pynput)
-    def on_press(key: keyboard.Key | keyboard.KeyCode) -> None:
-        try:
-            # Ctrl+Shift+T → toggle overlay
-            if (
-                isinstance(key, keyboard.KeyCode)
-                and key.char == "t"
-                and kb_listener.ctrl_pressed
-                and kb_listener.shift_pressed
-            ):
-                overlay.toggle_visible()
-
-            # Ctrl+Shift+Q → quit
-            if (
-                isinstance(key, keyboard.KeyCode)
-                and key.char == "q"
-                and kb_listener.ctrl_pressed
-                and kb_listener.shift_pressed
-            ):
-                QApplication.instance().quit()
-        except Exception:
-            pass
-
-    class HotkeyListener(keyboard.Listener):
-        def __init__(self) -> None:
-            self.ctrl_pressed = False
-            self.shift_pressed = False
-            super().__init__(on_press=self._on_press, on_release=self._on_release)
-
-        def _on_press(self, key) -> None:
-            if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
-                self.ctrl_pressed = True
-            if key in (keyboard.Key.shift, keyboard.Key.shift_r):
-                self.shift_pressed = True
-            on_press(key)
-
-        def _on_release(self, key) -> None:
-            if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
-                self.ctrl_pressed = False
-            if key in (keyboard.Key.shift, keyboard.Key.shift_r):
-                self.shift_pressed = False
-
-    kb_listener = HotkeyListener()
-    kb_listener.start()
-
-    logger.info(
-        "VNTL running. Hotkeys: Ctrl+Shift+T toggle overlay, Ctrl+Shift+Q quit."
-    )
+    logger.info("VNTL running.")
 
     # Save overlay geometry on exit
     try:
@@ -273,7 +225,6 @@ async def main() -> None:
         hooker.detach()
         overlay.save_geometry_to_config()
         save_config(cfg)
-        kb_listener.stop()
 
 
 if __name__ == "__main__":
