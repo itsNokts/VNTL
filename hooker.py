@@ -300,6 +300,16 @@ class HookerService:
         """Set which streams contribute to translated output."""
         self._enabled_streams = ids
         self._last_emitted = ""  # force re-emit on next stable text
+        # Immediately translate whatever is already on screen
+        parts = [
+            self._streams[hid].latest
+            for hid in self._enabled_streams
+            if hid in self._streams and self._streams[hid].latest
+        ]
+        combined = self._separator.join(parts)
+        if combined:
+            self._last_emitted = combined
+            self.text_queue.put_nowait(combined)
 
     def set_separator(self, sep: str) -> None:
         """Set the string used to join multiple stream texts."""
