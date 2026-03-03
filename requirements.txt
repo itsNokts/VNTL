@@ -1,0 +1,7 @@
+anthropic>=0.40.0
+openai
+PyQt6
+qasync
+pynput
+mss
+Pillow

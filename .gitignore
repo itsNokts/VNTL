@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# PyInstaller
+build/
+dist/
+
+# Claude Code project settings
+.claude/
+
+# Windows
+Thumbs.db
+desktop.ini
+*.lnk
+
+# VS Code
+.vscode/
+
+# Editors
+*.swp
+*.swo
+*~
