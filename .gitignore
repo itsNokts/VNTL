@@ -15,6 +15,7 @@ dist/
 
 # Claude Code project settings
 .claude/
+CLAUDE.md
 
 # Windows
 Thumbs.db

@@ -86,14 +86,19 @@ class Config:
     screenshot_enabled: bool = False
     clipboard_enabled:  bool = False
     context_summarize_tokens: int = 10_000
-    context_min_recent_lines: int = 15
+    context_min_recent_lines: int = 30
+    summary_max_tokens:       int = 5_000
+    line_batch_window_ms:     int = 200
+    debounce_ms:              int = 150
 
     # Per-role max output tokens
     translator_max_tokens: int = 2048
     descriptor_max_tokens: int = 2048
-    summarizer_max_tokens: int = 2048
+    summarizer_max_tokens: int = 8192
     # Screenshot scene-change sensitivity (% of pixels changed, stored as float)
     scene_change_threshold: float = 5.0
+    # Seconds to suppress re-triggering after a scene change (absorbs transition animations)
+    scene_change_cooldown: float = 1.0
 
     # Editable system prompts — empty string means "use built-in default"
     translator_system_prompt: str = ""
@@ -141,12 +146,16 @@ def load_config() -> Config:
         cfg.screenshot_enabled        = data.get("screenshot_enabled", False)
         cfg.clipboard_enabled         = data.get("clipboard_enabled", False)
         cfg.context_summarize_tokens  = data.get("context_summarize_tokens", 20_000)
-        cfg.context_min_recent_lines  = data.get("context_min_recent_lines", 15)
+        cfg.context_min_recent_lines  = data.get("context_min_recent_lines", 30)
+        cfg.summary_max_tokens        = data.get("summary_max_tokens", 5_000)
+        cfg.line_batch_window_ms      = data.get("line_batch_window_ms", 200)
+        cfg.debounce_ms               = data.get("debounce_ms", 150)
 
         cfg.translator_max_tokens  = data.get("translator_max_tokens", 2048)
         cfg.descriptor_max_tokens  = data.get("descriptor_max_tokens", 2048)
         cfg.summarizer_max_tokens  = data.get("summarizer_max_tokens", 2048)
         cfg.scene_change_threshold = float(data.get("scene_change_threshold", 15.0))
+        cfg.scene_change_cooldown  = float(data.get("scene_change_cooldown", 1.0))
 
         cfg.translator_system_prompt = data.get("translator_system_prompt", "")
         cfg.descriptor_system_prompt = data.get("descriptor_system_prompt", "")

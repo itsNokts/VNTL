@@ -61,8 +61,11 @@ async def input_loop(
     """
     async def _do_translate(text: str, should_pop: bool = False) -> None:
         popped = context.pop_last_line_if_matches(text) if should_pop else False
-        overlay.show_loading()
         was_compacting = context.needs_summarization()
+        if was_compacting:
+            overlay.show_loading("Summarizing...")
+            await translator._summarize_context()
+        overlay.show_loading()
         try:
             en = await translator.translate(text)
             overlay.update_text(text, en, replace_last=popped)
@@ -103,6 +106,16 @@ async def input_loop(
             try:
                 text = hooker.text_queue.get_nowait()
                 logger.debug("Hooker text: %r", text)
+                # Wait briefly so burst lines finish their debouncers, then drain
+                if cfg.line_batch_window_ms > 0:
+                    await asyncio.sleep(cfg.line_batch_window_ms / 1000.0)
+                items = [text]
+                while True:
+                    try:
+                        items.append(hooker.text_queue.get_nowait())
+                    except asyncio.QueueEmpty:
+                        break
+                text = "\n".join(items)
             except asyncio.QueueEmpty:
                 pass
 
@@ -120,6 +133,7 @@ async def input_loop(
                 sc = screenshot_service.capture(force=needs_describe_retry)
                 overlay.set_scene_diff(screenshot_service.last_pct, screenshot_service.last_triggered)
                 if sc is not None:
+                    overlay.show_loading("Describing scene...")
                     try:
                         context.current_scene_description = await translator.describe_scene(sc, text)
                         needs_describe_retry = False
@@ -128,6 +142,8 @@ async def input_loop(
                         overlay.set_scene_describe_error()
                         needs_describe_retry = True
             await _do_translate(text)
+            if cfg.screenshot_enabled and screenshot_service.is_attached:
+                screenshot_service.reset_cooldown()
 
         await asyncio.sleep(0.1)
 
@@ -178,7 +194,16 @@ async def main() -> None:
         if len(context.history) <= context._min_recent_lines:
             logger.info("Not enough history to compact (need >%d lines).", context._min_recent_lines)
             return
-        asyncio.create_task(translator._summarize_context())
+
+        async def _do_compact() -> None:
+            overlay.show_loading("Summarizing...")
+            await translator._summarize_context()
+            if translator.last_compact_error:
+                overlay.show_compact_error()
+            else:
+                overlay.show_compact_indicator()
+
+        asyncio.create_task(_do_compact())
         logger.info("Context compaction scheduled.")
 
     translator = Translator(cfg, context)
@@ -201,10 +226,12 @@ async def main() -> None:
 
     # Init hooker and create the named pipe (non-blocking)
     hooker = HookerService()
+    hooker.set_debounce(cfg.debounce_ms)
     hooker.start_server()
 
     screenshot_service = ScreenshotService()
     screenshot_service.threshold = cfg.scene_change_threshold
+    screenshot_service.cooldown  = cfg.scene_change_cooldown
 
     # Show overlay
     overlay = OverlayWindow(

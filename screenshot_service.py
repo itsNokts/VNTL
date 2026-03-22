@@ -5,6 +5,7 @@ import io
 import logging
 import os
 import sys
+import time
 from typing import Optional
 
 logger = logging.getLogger("vntl.screenshot")
@@ -95,6 +96,8 @@ class ScreenshotService:
         self._last_thumb: Optional[bytes] = None
         self._pid: Optional[int] = None
         self.threshold: float = 15.0
+        self.cooldown: float = 1.0
+        self._last_trigger_time: float = 0.0
         self.last_pct: float = 0.0
         self.last_triggered: bool = False
 
@@ -137,7 +140,11 @@ class ScreenshotService:
         pct = self._diff_pct(thumb)
         self._last_thumb = thumb  # always advance baseline — compare consecutive frames
         self.last_pct = pct
-        self.last_triggered = pct > self.threshold
+        now = time.monotonic()
+        self.last_triggered = (
+            pct > self.threshold
+            and (now - self._last_trigger_time) >= self.cooldown
+        )
         if not self.last_triggered and not force:
             return None
 
@@ -157,6 +164,10 @@ class ScreenshotService:
             buf.tell(),
         )
         return base64.b64encode(buf.getvalue()).decode()
+
+    def reset_cooldown(self) -> None:
+        """Reset the cooldown timer. Call after each line is fully processed."""
+        self._last_trigger_time = time.monotonic()
 
     def _diff_pct(self, new_thumb: bytes) -> float:
         """Return % of pixels that changed by more than _PIXEL_SENSITIVITY."""

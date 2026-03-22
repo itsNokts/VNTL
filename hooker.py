@@ -279,6 +279,7 @@ class HookerService:
         self._pipe: wt.HANDLE | None = None
         self._reader_task: asyncio.Task | None = None
         self._attached_pid: int | None = None
+        self._debounce_s: float = 0.15
 
         # Stream registry: hook_id → StreamState
         self._streams: dict[int, StreamState] = {}
@@ -490,7 +491,8 @@ class HookerService:
             self._streams[hook_id] = StreamState(
                 hook_id=hook_id,
                 debouncer=TextDebouncer(
-                    lambda t, hid=hook_id: self._on_stable(hid, t)
+                    lambda t, hid=hook_id: self._on_stable(hid, t),
+                    delay_s=self._debounce_s,
                 ),
             )
         s = self._streams[hook_id]
@@ -518,6 +520,12 @@ class HookerService:
         if combined and combined != self._last_emitted:
             self._last_emitted = combined
             await self.text_queue.put(combined)
+
+    def set_debounce(self, ms: int) -> None:
+        """Update debounce delay for new and all existing stream debouncers."""
+        self._debounce_s = ms / 1000.0
+        for s in self._streams.values():
+            s.debouncer._delay = self._debounce_s
 
     def _read_bytes(self, n: int) -> bytes | None:
         """Blocking read of exactly *n* bytes from the pipe. Returns None on error."""

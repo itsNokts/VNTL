@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSlider,
+    QDoubleSpinBox,
     QSpinBox,
     QStackedWidget,
     QTabWidget,
@@ -321,13 +322,14 @@ class SettingsDialog(QDialog):
     Cancel reverts all live appearance changes.
     """
 
-    def __init__(self, cfg: Config, overlay, save_fn, screenshot_service=None) -> None:
+    def __init__(self, cfg: Config, overlay, save_fn, screenshot_service=None, hooker=None) -> None:
         super().__init__(overlay)
 
         self._cfg = cfg
         self._overlay = overlay
         self._save_fn = save_fn
         self._screenshot_service = screenshot_service
+        self._hooker = hooker
 
         # Snapshot current appearance so Cancel can revert exactly
         self._orig_overlay: OverlayConfig = copy.deepcopy(cfg.overlay)
@@ -534,6 +536,21 @@ class SettingsDialog(QDialog):
         )
         parent.addWidget(thresh_note)
 
+        cooldown_row = QHBoxLayout()
+        cooldown_lbl = QLabel("Scene change cooldown:")
+        cooldown_lbl.setFixedWidth(165)
+        cooldown_row.addWidget(cooldown_lbl)
+        self._scene_cooldown_spin = QDoubleSpinBox()
+        self._scene_cooldown_spin.setRange(0.0, 10.0)
+        self._scene_cooldown_spin.setSingleStep(0.5)
+        self._scene_cooldown_spin.setDecimals(1)
+        self._scene_cooldown_spin.setSuffix(" s")
+        self._scene_cooldown_spin.setValue(self._cfg.scene_change_cooldown)
+        self._scene_cooldown_spin.setMaximumWidth(90)
+        cooldown_row.addWidget(self._scene_cooldown_spin)
+        cooldown_row.addStretch()
+        parent.addLayout(cooldown_row)
+
         parent.addSpacing(4)
 
         # Summarize-at-tokens
@@ -551,6 +568,21 @@ class SettingsDialog(QDialog):
         tok_row.addStretch()
         parent.addLayout(tok_row)
 
+        # Summary target size
+        sum_tok_row = QHBoxLayout()
+        lbl_st = QLabel("Summary target size:")
+        lbl_st.setFixedWidth(165)
+        sum_tok_row.addWidget(lbl_st)
+        self._summary_tokens_spin = QSpinBox()
+        self._summary_tokens_spin.setRange(500, 20_000)
+        self._summary_tokens_spin.setSingleStep(500)
+        self._summary_tokens_spin.setValue(self._cfg.summary_max_tokens)
+        self._summary_tokens_spin.setMaximumWidth(110)
+        sum_tok_row.addWidget(self._summary_tokens_spin)
+        sum_tok_row.addWidget(QLabel("tokens"))
+        sum_tok_row.addStretch()
+        parent.addLayout(sum_tok_row)
+
         # Min recent lines
         lines_row = QHBoxLayout()
         lbl2 = QLabel("Keep verbatim lines:")
@@ -563,6 +595,36 @@ class SettingsDialog(QDialog):
         lines_row.addWidget(QLabel("lines"))
         lines_row.addStretch()
         parent.addLayout(lines_row)
+
+        # Line batch window
+        batch_row = QHBoxLayout()
+        batch_lbl = QLabel("Line batch window:")
+        batch_lbl.setFixedWidth(165)
+        batch_row.addWidget(batch_lbl)
+        self._batch_win_spin = QSpinBox()
+        self._batch_win_spin.setRange(0, 2000)
+        self._batch_win_spin.setSingleStep(50)
+        self._batch_win_spin.setSuffix(" ms")
+        self._batch_win_spin.setValue(self._cfg.line_batch_window_ms)
+        self._batch_win_spin.setMaximumWidth(100)
+        batch_row.addWidget(self._batch_win_spin)
+        batch_row.addStretch()
+        parent.addLayout(batch_row)
+
+        # Text debounce
+        debounce_row = QHBoxLayout()
+        debounce_lbl = QLabel("Text debounce:")
+        debounce_lbl.setFixedWidth(165)
+        debounce_row.addWidget(debounce_lbl)
+        self._debounce_spin = QSpinBox()
+        self._debounce_spin.setRange(10, 2000)
+        self._debounce_spin.setSingleStep(10)
+        self._debounce_spin.setSuffix(" ms")
+        self._debounce_spin.setValue(self._cfg.debounce_ms)
+        self._debounce_spin.setMaximumWidth(100)
+        debounce_row.addWidget(self._debounce_spin)
+        debounce_row.addStretch()
+        parent.addLayout(debounce_row)
 
 
     def _build_models_and_apis(self, parent: QVBoxLayout) -> None:
@@ -885,13 +947,24 @@ class SettingsDialog(QDialog):
         self._cfg.clipboard_enabled        = self._clipboard_check.isChecked()
         self._cfg.screenshot_enabled       = self._screenshot_check.isChecked()
         self._cfg.context_summarize_tokens = self._summ_spin.value()
+        self._cfg.summary_max_tokens       = self._summary_tokens_spin.value()
         self._cfg.context_min_recent_lines = self._lines_spin.value()
+        self._cfg.line_batch_window_ms     = self._batch_win_spin.value()
+        debounce = self._debounce_spin.value()
+        self._cfg.debounce_ms = debounce
+        if self._hooker is not None:
+            self._hooker.set_debounce(debounce)
 
         # Scene change threshold (apply immediately to screenshot service)
         _pct = _slider_to_threshold(self._scene_thresh_slider.value())
         self._cfg.scene_change_threshold = _pct
         if self._screenshot_service is not None:
             self._screenshot_service.threshold = _pct
+
+        cooldown = self._scene_cooldown_spin.value()
+        self._cfg.scene_change_cooldown = cooldown
+        if self._screenshot_service is not None:
+            self._screenshot_service.cooldown = cooldown
 
         # System prompts (empty string = use built-in default)
         self._cfg.translator_system_prompt = self._translator_prompt_edit.toPlainText().strip()

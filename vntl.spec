@@ -9,8 +9,6 @@ datas = [
 binaries = []
 hiddenimports = [
     'qasync',
-    'pynput.keyboard._win32',
-    'pynput.mouse._win32',
     'mss.windows',
 ]
 

@@ -123,9 +123,9 @@ class ContextManager:
             messages.append({"role": "assistant", "content": line.en})
 
         if self.current_scene_description:
-            content = f"[Scene: {self.current_scene_description}]\n{current_jp}"
+            content = f"[Scene: {self.current_scene_description}]\n[TRANSLATE THIS:]\n{current_jp}"
         else:
-            content = current_jp
+            content = f"[TRANSLATE THIS:]\n{current_jp}"
         messages.append({"role": "user", "content": content})
         return messages
 

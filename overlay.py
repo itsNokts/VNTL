@@ -412,10 +412,10 @@ class OverlayWindow(QWidget):
             if self._backlog_win is not None:
                 self._backlog_win.append_entry(jp, en)
 
-    def show_loading(self) -> None:
-        """Show a translating indicator while the API call is in flight."""
+    def show_loading(self, message: str = "Translating...") -> None:
+        """Show a status indicator while an async LLM call is in flight."""
         self._retry_btn.setEnabled(False)
-        self._en_label.setText("Translating...")
+        self._en_label.setText(message)
         self._en_label.setStyleSheet(
             f"color: rgba(180, 180, 180, 180); "
             f"font-family: '{self._cfg.overlay.en_font_family}'; "
@@ -613,7 +613,7 @@ class OverlayWindow(QWidget):
 
     def _open_settings(self) -> None:
         from settings import SettingsDialog  # lazy import avoids circular
-        SettingsDialog(self._cfg, self, self._save_fn, self._screenshot_service).exec()
+        SettingsDialog(self._cfg, self, self._save_fn, self._screenshot_service, self._hooker).exec()
 
     # ------------------------------------------------------------------
     # Painting — dark rounded background
