@@ -1,0 +1,18 @@
+[project]
+name = "vntl"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40.0",
+    "openai",
+    "pyqt6",
+    "qasync",
+    "mss",
+    "pillow",
+]
+
+[dependency-groups]
+dev = [
+    "pyinstaller",
+    "pyinstaller-hooks-contrib",
+]

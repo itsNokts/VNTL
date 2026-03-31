@@ -20,8 +20,18 @@ Real-time Japanese → English translator for Windows visual novels. Hooks into 
 ## Setup
 
 ```bash
-pip install -r requirements.txt
-python main.py
+uv sync
+uv run python main.py
+```
+
+[uv](https://docs.astral.sh/uv/) handles the virtual environment and dependencies automatically. If you don't have uv, install it first:
+
+```bash
+# Windows
+winget install astral-sh.uv
+
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 API keys can be entered in the settings dialog (right-click the overlay → Settings) or supplied via environment variables:
