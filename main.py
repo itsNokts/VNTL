@@ -69,6 +69,8 @@ async def input_loop(
         try:
             en = await translator.translate(text)
             overlay.update_text(text, en, replace_last=popped)
+            if popped:
+                overlay.update_context(context.summary, context.history)
             overlay.show_retry_button(
                 lambda t=text: asyncio.create_task(_do_translate(t, should_pop=True))
             )
@@ -202,6 +204,7 @@ async def main() -> None:
                 overlay.show_compact_error()
             else:
                 overlay.show_compact_indicator()
+                overlay.update_context(context.summary, context.history)
 
         asyncio.create_task(_do_compact())
         logger.info("Context compaction scheduled.")
@@ -240,6 +243,7 @@ async def main() -> None:
         clear_context, compact_context,
         hooker,
         screenshot_service,
+        get_context_fn=lambda: (context.summary, context.history),
     )
     overlay.show()
 

@@ -58,6 +58,13 @@ When the history grows large (configurable threshold, default ~10 000 tokens), a
 
 Dialogue contexts are saved automatically and can be managed from the right-click menu (**Save context**, **Load context**, **Clear context**). Loading a saved context lets you resume a session mid-playthrough without losing established terminology.
 
+The **Σ button** on the overlay opens the context viewer — a two-tab window showing exactly what the translator has in memory:
+
+- **Summary** — the compressed reference document produced by the summarizer, covering character profiles, story progress, and established translation choices.
+- **History** — the verbatim JP→EN pairs currently in context, with scene descriptions shown where they were captured. Text in both tabs is selectable and copyable.
+
+This is useful for refreshing memory when resuming a session or checking whether the context has drifted. The viewer updates automatically after compaction, load, and clear.
+
 ## Scene description
 
 When enabled (Settings → Screenshot), VNTL periodically captures a 64×64 grayscale thumbnail of the screen and computes the percentage of pixels that changed since the last frame. When the change exceeds the configured threshold, a full JPEG screenshot is sent to the **descriptor** model.

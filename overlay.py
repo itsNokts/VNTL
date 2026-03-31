@@ -7,11 +7,12 @@ from PyQt6.QtGui import QColor, QFont, QPainter
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QDialog, QDialogButtonBox,
     QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QScrollArea,
-    QVBoxLayout, QWidget,
+    QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton,
+    QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from config import Config, OverlayConfig
+from context_manager import DialogueLine
 from hooker import HookerService, StreamState, list_processes
 from screenshot_service import ScreenshotService
 
@@ -158,6 +159,10 @@ class BacklogWindow(QWidget):
             self._inner.insertWidget(self._inner.count() - 1, sep)
 
         ov = self._ov_cfg
+        _selectable = (
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
         jp_lbl = QLabel(jp, self._container)
         r, g, b, a = ov.jp_color
         jp_lbl.setStyleSheet(
@@ -165,6 +170,7 @@ class BacklogWindow(QWidget):
             f"font-family: '{ov.jp_font_family}'; font-size: {ov.jp_font_size}pt;"
         )
         jp_lbl.setWordWrap(True)
+        jp_lbl.setTextInteractionFlags(_selectable)
 
         en_lbl = QLabel(en, self._container)
         r, g, b, a = ov.en_color
@@ -173,6 +179,7 @@ class BacklogWindow(QWidget):
             f"font-family: '{ov.en_font_family}'; font-size: {ov.en_font_size}pt;"
         )
         en_lbl.setWordWrap(True)
+        en_lbl.setTextInteractionFlags(_selectable)
 
         self._inner.insertWidget(self._inner.count() - 1, jp_lbl)
         self._inner.insertWidget(self._inner.count() - 1, en_lbl)
@@ -199,6 +206,158 @@ class BacklogWindow(QWidget):
             )
 
 
+class ContextViewerWindow(QWidget):
+    """
+    Tabbed window showing the full context sent to the translator:
+    - Summary tab: the compressed story/character reference produced by the summarizer.
+    - History tab: the verbatim JP→EN pairs (with scene descriptions) the LLM receives.
+    """
+
+    def __init__(self, ov_cfg: OverlayConfig, parent=None) -> None:
+        super().__init__(parent, Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowTitle("Context Viewer")
+        self.resize(520, 620)
+        self._ov_cfg = ov_cfg
+        self._history_entries: list[tuple[QLabel | None, QLabel, QLabel]] = []
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self._tabs = QTabWidget(self)
+        layout.addWidget(self._tabs)
+
+        # --- Summary tab ---
+        self._summary_edit = QPlainTextEdit()
+        self._summary_edit.setReadOnly(True)
+        self._summary_edit.setPlaceholderText(
+            "No summary yet.\n\n"
+            "Context will be summarized automatically when it grows large enough, "
+            "or you can trigger it manually via right-click → Compact context."
+        )
+        self._tabs.addTab(self._summary_edit, "Summary")
+
+        # --- History tab ---
+        history_widget = QWidget()
+        history_layout = QVBoxLayout(history_widget)
+        history_layout.setContentsMargins(0, 0, 0, 0)
+        self._history_scroll = QScrollArea()
+        self._history_scroll.setWidgetResizable(True)
+        self._history_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._history_container = QWidget()
+        self._history_inner = QVBoxLayout(self._history_container)
+        self._history_inner.setContentsMargins(10, 8, 10, 8)
+        self._history_inner.setSpacing(2)
+        self._history_inner.addStretch()
+        self._history_scroll.setWidget(self._history_container)
+        history_layout.addWidget(self._history_scroll)
+        self._tabs.addTab(history_widget, "History")
+
+        self._apply_style()
+
+    def _apply_style(self) -> None:
+        ov = self._ov_cfg
+        r, g, b, a = ov.bg_color
+        er, eg, eb, ea = ov.en_color
+        bg_css = f"rgba({r},{g},{b},{a})"
+        en_css = f"rgba({er},{eg},{eb},{ea})"
+        self._summary_edit.setStyleSheet(
+            f"QPlainTextEdit {{"
+            f"  background: {bg_css};"
+            f"  color: {en_css};"
+            f"  font-family: '{ov.en_font_family}';"
+            f"  font-size: {ov.en_font_size}pt;"
+            f"  border: none;"
+            f"}}"
+        )
+        self._history_scroll.setStyleSheet(
+            f"QScrollArea {{ background: {bg_css}; border: none; }}"
+        )
+        self._history_container.setStyleSheet(f"background: {bg_css};")
+        for scene_lbl, jp_lbl, en_lbl in self._history_entries:
+            self._style_entry(scene_lbl, jp_lbl, en_lbl)
+
+    def _style_entry(
+        self,
+        scene_lbl: QLabel | None,
+        jp_lbl: QLabel,
+        en_lbl: QLabel,
+    ) -> None:
+        ov = self._ov_cfg
+        if scene_lbl is not None:
+            jr, jg, jb, ja = ov.jp_color
+            er, eg, eb, ea = ov.en_color
+            scene_size = max(8, int(ov.en_font_size * 0.85))
+            scene_lbl.setStyleSheet(
+                f"color: rgba({(jr+er)//2},{(jg+eg)//2},{(jb+eb)//2},{(ja+ea)//2});"
+                f" font-style: italic;"
+                f" font-family: '{ov.en_font_family}'; font-size: {scene_size}pt;"
+            )
+        jr, jg, jb, ja = ov.jp_color
+        jp_lbl.setStyleSheet(
+            f"color: rgba({jr},{jg},{jb},{ja});"
+            f" font-family: '{ov.jp_font_family}'; font-size: {ov.en_font_size}pt;"
+        )
+        er, eg, eb, ea = ov.en_color
+        en_lbl.setStyleSheet(
+            f"color: rgba({er},{eg},{eb},{ea});"
+            f" font-family: '{ov.en_font_family}'; font-size: {ov.en_font_size}pt;"
+        )
+
+    def set_summary(self, text: str | None) -> None:
+        self._summary_edit.setPlainText(text or "")
+
+    def set_history(self, lines: list[DialogueLine]) -> None:
+        # Clear existing entries
+        for scene_lbl, jp_lbl, en_lbl in self._history_entries:
+            for w in (scene_lbl, jp_lbl, en_lbl):
+                if w is not None:
+                    w.deleteLater()
+        # Remove all widgets except the trailing stretch
+        while self._history_inner.count() > 1:
+            item = self._history_inner.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._history_entries.clear()
+
+        for i, line in enumerate(lines):
+            if i > 0:
+                sep = QFrame(self._history_container)
+                sep.setFrameShape(QFrame.Shape.HLine)
+                sep.setStyleSheet(
+                    "background-color: rgba(80,80,80,80); max-height: 1px; margin: 4px 0;"
+                )
+                self._history_inner.insertWidget(self._history_inner.count() - 1, sep)
+
+            _selectable = (
+                Qt.TextInteractionFlag.TextSelectableByMouse
+                | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            )
+            scene_lbl: QLabel | None = None
+            if line.scene_description:
+                scene_lbl = QLabel(f"[Scene: {line.scene_description}]", self._history_container)
+                scene_lbl.setWordWrap(True)
+                scene_lbl.setTextInteractionFlags(_selectable)
+                self._history_inner.insertWidget(self._history_inner.count() - 1, scene_lbl)
+
+            jp_lbl = QLabel(line.jp, self._history_container)
+            jp_lbl.setWordWrap(True)
+            jp_lbl.setTextInteractionFlags(_selectable)
+            en_lbl = QLabel(line.en, self._history_container)
+            en_lbl.setWordWrap(True)
+            en_lbl.setTextInteractionFlags(_selectable)
+            self._history_inner.insertWidget(self._history_inner.count() - 1, jp_lbl)
+            self._history_inner.insertWidget(self._history_inner.count() - 1, en_lbl)
+
+            self._history_entries.append((scene_lbl, jp_lbl, en_lbl))
+            self._style_entry(scene_lbl, jp_lbl, en_lbl)
+
+    def refresh_appearance(self, ov_cfg: OverlayConfig) -> None:
+        self._ov_cfg = ov_cfg
+        self._apply_style()
+
+
 class OverlayWindow(QWidget):
     """
     Always-on-top, semi-transparent overlay that displays Japanese text
@@ -217,7 +376,8 @@ class OverlayWindow(QWidget):
                  save_context_fn, load_context_fn,
                  clear_context_fn, compact_context_fn,
                  hooker: HookerService,
-                 screenshot_service: ScreenshotService) -> None:
+                 screenshot_service: ScreenshotService,
+                 get_context_fn=None) -> None:
         super().__init__()
         self._cfg = cfg
         self._save_fn = save_fn
@@ -227,9 +387,11 @@ class OverlayWindow(QWidget):
         self._compact_context_fn = compact_context_fn
         self._hooker = hooker
         self._screenshot_service = screenshot_service
+        self._get_context_fn = get_context_fn or (lambda: (None, []))
         self._drag_pos: QPoint | None = None
         self._backlog: list[tuple[str, str]] = []
         self._backlog_win: BacklogWindow | None = None
+        self._context_viewer: ContextViewerWindow | None = None
         self._retry_fn = None
 
         self._setup_window()
@@ -325,6 +487,16 @@ class OverlayWindow(QWidget):
         self._backlog_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._backlog_btn.clicked.connect(self._toggle_backlog)
 
+        self._context_btn = QPushButton("Σ", self)
+        self._context_btn.setFixedSize(22, 22)
+        self._context_btn.setStyleSheet(
+            "QPushButton { color: rgba(200,200,200,160); background: transparent;"
+            "  border: none; font-size: 14px; }"
+            "QPushButton:hover { color: rgba(255,255,255,230); }"
+        )
+        self._context_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._context_btn.clicked.connect(self._toggle_context_viewer)
+
         self._retry_btn = QPushButton("\u21bb", self)
         self._retry_btn.setFixedSize(22, 22)
         self._retry_btn.setStyleSheet(
@@ -360,7 +532,7 @@ class OverlayWindow(QWidget):
         self._ctx_popup = _ContextPopup(self)
         self._ctx_popup.add_action("Save context\u2026",    self._save_context)
         self._ctx_popup.add_action("Load context\u2026",    self._load_context)
-        self._ctx_popup.add_action("Clear context",         self._clear_context_fn)
+        self._ctx_popup.add_action("Clear context",         self._on_clear_context)
         self._ctx_popup.add_action("Compact context",       self._compact_context_fn)
         self._ctx_popup.add_action("Attach to process\u2026", self._attach_process)
         self._streams_btn = self._ctx_popup.add_action(
@@ -375,7 +547,9 @@ class OverlayWindow(QWidget):
         self._gear_btn.move(gear_x, 4)
         backlog_x = gear_x - self._backlog_btn.width() - 4
         self._backlog_btn.move(backlog_x, 4)
-        self._retry_btn.move(backlog_x - self._retry_btn.width() - 4, 4)
+        context_x = backlog_x - self._context_btn.width() - 4
+        self._context_btn.move(context_x, 4)
+        self._retry_btn.move(context_x - self._retry_btn.width() - 4, 4)
 
     def _position_scene_diff_label(self) -> None:
         self._scene_diff_label.adjustSize()
@@ -546,6 +720,8 @@ class OverlayWindow(QWidget):
         self.update()  # repaint background
         if self._backlog_win is not None:
             self._backlog_win.refresh_appearance(ov)
+        if self._context_viewer is not None:
+            self._context_viewer.refresh_appearance(ov)
 
     # ------------------------------------------------------------------
     # Right-click context menu
@@ -568,6 +744,12 @@ class OverlayWindow(QWidget):
         )
         if path:
             self._load_context_fn(path)
+            summary, history = self._get_context_fn()
+            self.update_context(summary, history)
+
+    def _on_clear_context(self) -> None:
+        self._clear_context_fn()
+        self.update_context(None, [])
 
     def _attach_process(self) -> None:
         dlg = ProcessPickerDialog(
@@ -606,6 +788,27 @@ class OverlayWindow(QWidget):
         else:
             self._backlog_win.show()
             self._backlog_win.raise_()
+
+    # ------------------------------------------------------------------
+    # Context viewer (Σ)
+    # ------------------------------------------------------------------
+
+    def _toggle_context_viewer(self) -> None:
+        if self._context_viewer is None:
+            self._context_viewer = ContextViewerWindow(self._cfg.overlay)
+            summary, history = self._get_context_fn()
+            self._context_viewer.set_summary(summary)
+            self._context_viewer.set_history(history)
+        if self._context_viewer.isVisible():
+            self._context_viewer.hide()
+        else:
+            self._context_viewer.show()
+            self._context_viewer.raise_()
+
+    def update_context(self, summary: str | None, history: list) -> None:
+        if self._context_viewer is not None:
+            self._context_viewer.set_summary(summary)
+            self._context_viewer.set_history(history)
 
     # ------------------------------------------------------------------
     # Settings
