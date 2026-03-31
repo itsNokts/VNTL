@@ -200,6 +200,10 @@ class ContextManager:
         if self.summary:
             self._estimated_tokens += self._estimate_summary_tokens(self.summary)
 
+    @property
+    def estimated_tokens(self) -> int:
+        return self._estimated_tokens
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------

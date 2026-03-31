@@ -12,7 +12,11 @@ from context_manager import ContextManager
 
 logger = logging.getLogger(__name__)
 
-_LOG_PATH = Path.home() / ".config" / "vntl" / "llm_calls.log"
+_LOG_DIR          = Path.home() / ".config" / "vntl"
+_TRANSLATE_LOG    = _LOG_DIR / "translate.log"
+_DESCRIBE_LOG     = _LOG_DIR / "describe.log"
+_SUMMARIZE_LOG    = _LOG_DIR / "summarize.log"
+_MAX_LOG_ENTRIES  = 5
 
 
 _SYSTEM_PROMPT = """\
@@ -161,7 +165,8 @@ rendering is inaccurate or misleading, update the entry to the better translatio
 Never remove terminology entries \u2014 only update them.
 
 ## Length Management
-Target approximately {max_summary_tokens} tokens. If space is tight, apply compression in \
+The input you are receiving is approximately {current_context_tokens} tokens. \
+Target approximately {max_summary_tokens} tokens for your output. If space is tight, apply compression in \
 this priority order (most compressible first):
 1. Story So Far \u2014 old resolved events can be condensed
 2. Current Situation \u2014 prior scene descriptions can be shortened once superseded
@@ -417,14 +422,14 @@ class Translator:
             use_cache=(provider == "anthropic"), think=think,
         )
 
-        self._write_translator_log(messages, result)
+        self._log_call("TRANSLATE", provider, model, system, messages, result)
         if not result:
             logger.warning("Empty result for %r, retrying once…", jp_text)
             result = await self._call(
                 provider, model, system, messages, max_tokens=max_tok,
                 use_cache=(provider == "anthropic"), think=think,
             )
-            self._write_translator_log(messages, result)
+            self._log_call("TRANSLATE", provider, model, system, messages, result)
 
         if result:
             self._context.add_line(jp_text, result)
@@ -475,11 +480,13 @@ class Translator:
             ],
         }]
 
+        desc_system = self._cfg.descriptor_system_prompt or _DESCRIBE_SYSTEM
         description = await self._call(
-            provider, model, self._cfg.descriptor_system_prompt or _DESCRIBE_SYSTEM, messages,
+            provider, model, desc_system, messages,
             max_tokens=self._cfg.descriptor_max_tokens,
             think=self._cfg.descriptor_ollama_thinking,
         )
+        self._log_call("DESCRIBE", provider, model, desc_system, messages, description)
         return description
 
     async def _summarize_context(self) -> None:
@@ -493,6 +500,8 @@ class Translator:
 
             system = (self._cfg.summarizer_system_prompt or _SUMMARIZE_SYSTEM).replace(
                 "{max_summary_tokens}", str(self._cfg.summary_max_tokens)
+            ).replace(
+                "{current_context_tokens}", str(self._context.estimated_tokens)
             )
             new_summary = await self._call(
                 provider, model, system, msgs,
@@ -500,6 +509,7 @@ class Translator:
                 think=self._cfg.summarizer_ollama_thinking,
             )
             self._context.apply_summarization(new_summary)
+            self._log_call("SUMMARIZE", provider, model, system, msgs, new_summary)
             logger.info("Context compacted successfully.")
         except Exception as exc:
             self.last_compact_error = True
@@ -509,33 +519,85 @@ class Translator:
     # Logging helpers
     # ------------------------------------------------------------------
 
-    def _write_translator_log(self, messages: list[dict], output: str) -> None:
-        """Overwrite llm_calls.log with the most recent translator call as a play script."""
+    def _log_call(
+        self,
+        call_type: str,
+        provider: str,
+        model: str,
+        system: str,
+        messages: list[dict],
+        output: str,
+    ) -> None:
+        """Append one LLM call entry to the appropriate role log file."""
+        path = {"TRANSLATE": _TRANSLATE_LOG, "DESCRIBE": _DESCRIBE_LOG,
+                "SUMMARIZE": _SUMMARIZE_LOG}.get(call_type, _TRANSLATE_LOG)
         ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        parts = [f"{ts}\n" + "─" * 72 + "\n"]
+        HDR = "──────"
+        SEP = "═" * 72
 
-        i = 0
-        while i < len(messages) - 1:
-            u = messages[i]
-            a = messages[i + 1]
-            if u["role"] != "user" or a["role"] != "assistant":
-                i += 1
-                continue
-            content = u.get("content", "")
-            if content.startswith("[Context summary of earlier dialogue]"):
-                summary = content.split("\n", 1)[1] if "\n" in content else content
-                parts.append(f"\n[Summary]\n{summary}\n")
-            else:
-                parts.append(f"\n{content}\n{a.get('content', '')}\n")
-            i += 2
+        parts: list[str] = []
+        parts.append(f"\n{SEP}\n")
+        parts.append(f"  {call_type}  ·  {ts}  ·  {provider}/{model}\n")
+        parts.append(f"{SEP}\n")
 
-        if messages and messages[-1]["role"] == "user":
-            content = messages[-1].get("content", "")
-            parts.append(f"\n{content}\n{output}\n")
+        parts.append(f"\nSYSTEM\n{HDR}\n{system}\n")
+
+        if call_type == "TRANSLATE":
+            context_lines: list[str] = []
+            i = 0
+            while i < len(messages) - 1:
+                u = messages[i]
+                a = messages[i + 1]
+                if u["role"] != "user" or a["role"] != "assistant":
+                    i += 1
+                    continue
+                content = u.get("content", "")
+                if content.startswith("[Context summary of earlier dialogue]"):
+                    summary_body = content.split("\n", 1)[1] if "\n" in content else content
+                    context_lines.append(f"[Summary]\n{summary_body}")
+                else:
+                    context_lines.append(f"{content}\n{a.get('content', '')}")
+                i += 2
+            if context_lines:
+                parts.append(f"\nCONTEXT\n{HDR}\n" + "\n\n".join(context_lines) + "\n")
+            if messages and messages[-1]["role"] == "user":
+                parts.append(f"\nINPUT\n{HDR}\n{messages[-1].get('content', '')}\n")
+
+        elif call_type == "DESCRIBE":
+            input_parts: list[str] = []
+            for msg in messages:
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict):
+                            if block.get("type") in ("image", "image_url"):
+                                input_parts.append("[JPEG image]")
+                            elif block.get("type") == "text":
+                                input_parts.append(block.get("text", ""))
+                else:
+                    input_parts.append(str(content))
+            parts.append(f"\nINPUT\n{HDR}\n" + "\n\n".join(input_parts) + "\n")
+
+        else:  # SUMMARIZE
+            if messages:
+                parts.append(f"\nINPUT\n{HDR}\n{messages[0].get('content', '')}\n")
+
+        parts.append(f"\nOUTPUT\n{HDR}\n{output}\n")
 
         try:
-            _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            with _LOG_PATH.open("w", encoding="utf-8") as f:
-                f.write("".join(parts))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            new_entry = "".join(parts)
+            # Rolling window: keep only the last _MAX_LOG_ENTRIES entries.
+            # Entries are delimited by the ═-line that starts each block.
+            existing: list[str] = []
+            if path.exists():
+                raw = path.read_text(encoding="utf-8")
+                # Split on the separator; first element is empty (file starts with \n═══)
+                sep = "\n" + "═" * 72
+                chunks = raw.split(sep)
+                existing = [sep + c for c in chunks if c.strip()]
+            kept = existing[-(  _MAX_LOG_ENTRIES - 1):] if existing else []
+            with path.open("w", encoding="utf-8") as f:
+                f.write("".join(kept) + new_entry)
         except OSError:
             logger.warning("Failed to write LLM call log.")

@@ -623,6 +623,20 @@ class OverlayWindow(QWidget):
         self._position_summ_label()
         self._summ_label.show()
 
+    def restore_display(self) -> None:
+        """Re-display the last backlog entry after a loading state."""
+        self._retry_btn.setEnabled(True)
+        if self._backlog:
+            jp, en = self._backlog[-1]
+            self._jp_label.setText(jp)
+            r, g, b, a = self._cfg.overlay.en_color
+            self._en_label.setText(en)
+            self._en_label.setStyleSheet(
+                f"color: rgba({r},{g},{b},{a}); "
+                f"font-family: '{self._cfg.overlay.en_font_family}'; "
+                f"font-size: {self._cfg.overlay.en_font_size}pt;"
+            )
+
     def show_error_text(self, jp: str, message: str) -> None:
         """Display an error message without adding it to the backlog."""
         self._jp_label.setText(jp)
@@ -799,12 +813,12 @@ class OverlayWindow(QWidget):
     def _toggle_context_viewer(self) -> None:
         if self._context_viewer is None:
             self._context_viewer = ContextViewerWindow(self._cfg.overlay)
-            summary, history = self._get_context_fn()
-            self._context_viewer.set_summary(summary)
-            self._context_viewer.set_history(history)
         if self._context_viewer.isVisible():
             self._context_viewer.hide()
         else:
+            summary, history = self._get_context_fn()
+            self._context_viewer.set_summary(summary)
+            self._context_viewer.set_history(history)
             self._context_viewer.show()
             self._context_viewer.raise_()
 

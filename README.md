@@ -151,7 +151,7 @@ make clean
 
 ## Configuration
 
-Config is stored at `~/.config/vntl/config.json` and written automatically on exit. Saved dialogue contexts live in `~/.config/vntl/contexts/`. AI call logs (model, tokens, latency) are written to `~/.config/vntl/llm_calls.log`.
+Config is stored at `~/.config/vntl/config.json` and written automatically on exit. Saved dialogue contexts live in `~/.config/vntl/contexts/`. Each AI role appends its calls to a dedicated log under `~/.config/vntl/`: `translate.log`, `describe.log`, and `summarize.log`. Each entry records the full system prompt (with substituted variables), the input context, and the model output.
 
 ## Architecture (for contributors)
 
