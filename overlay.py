@@ -7,7 +7,7 @@ from PyQt6.QtGui import QColor, QFont, QPainter
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QDialog, QDialogButtonBox,
     QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton,
+    QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QTextEdit,
     QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -229,7 +229,7 @@ class ContextViewerWindow(QWidget):
         layout.addWidget(self._tabs)
 
         # --- Summary tab ---
-        self._summary_edit = QPlainTextEdit()
+        self._summary_edit = QTextEdit()
         self._summary_edit.setReadOnly(True)
         self._summary_edit.setPlaceholderText(
             "No summary yet.\n\n"
@@ -263,7 +263,7 @@ class ContextViewerWindow(QWidget):
         bg_css = f"rgba({r},{g},{b},{a})"
         en_css = f"rgba({er},{eg},{eb},{ea})"
         self._summary_edit.setStyleSheet(
-            f"QPlainTextEdit {{"
+            f"QTextEdit {{"
             f"  background: {bg_css};"
             f"  color: {en_css};"
             f"  font-family: '{ov.en_font_family}';"
@@ -306,7 +306,10 @@ class ContextViewerWindow(QWidget):
         )
 
     def set_summary(self, text: str | None) -> None:
-        self._summary_edit.setPlainText(text or "")
+        if text:
+            self._summary_edit.setMarkdown(text)
+        else:
+            self._summary_edit.clear()
 
     def set_history(self, lines: list[DialogueLine]) -> None:
         # Clear existing entries
